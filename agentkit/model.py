@@ -98,7 +98,10 @@ class LLM:
         em vez do texto, com a chave tool_calls quando o modelo pede uma chamada.
         """
         prompt = self.tokenizer.apply_chat_template(
-            messages, tools=self.tools or None, tokenize=False, add_generation_prompt=True
+            messages,
+            tools=self.tools or None,
+            tokenize=False,
+            add_generation_prompt=True,
         )
         text = self.generate(prompt, **kwargs)
         if not self.tools:
@@ -122,7 +125,7 @@ class LLM:
             return self.generate(input, **kwargs)
         return self.chat(input, **kwargs)
 
-    def bind_tools(self, tools: list) -> "LLM":
+    def bind_tools(self, tools: list) -> LLM:
         """Devolve uma cópia do modelo com as ferramentas ligadas às chamadas."""
         bound = copy.copy(self)
         bound.tools = [fn.tool_schema for fn in tools]
@@ -139,7 +142,7 @@ class LLM:
             from outlines import Generator, from_transformers
         except ImportError as exc:
             raise ImportError(
-                "Instale o outlines com: pip install \"outlines>=1,<2\""
+                'Instale o outlines com: pip install "outlines>=1,<2"'
             ) from exc
 
         if isinstance(prompt_or_messages, str):
@@ -245,7 +248,9 @@ class LLMAPI:
         self.last_usage: dict = {}
         self.usage: list[dict] = []
 
-    def complete(self, messages: list[dict], response_format: dict | None = None, **kwargs) -> dict:
+    def complete(
+        self, messages: list[dict], response_format: dict | None = None, **kwargs
+    ) -> dict:
         """Envia a conversa e devolve a mensagem crua da API, registrando o uso.
 
         É o único ponto da classe que fala HTTP. Os outros métodos montam o que
@@ -282,7 +287,12 @@ class LLMAPI:
         A API não continua prompt cru: o mais próximo disso é uma conversa de
         uma mensagem só, e é essa a diferença para o LLM local.
         """
-        return self.complete([{"role": "user", "content": prompt}], **kwargs).get("content") or ""
+        return (
+            self.complete([{"role": "user", "content": prompt}], **kwargs).get(
+                "content"
+            )
+            or ""
+        )
 
     def chat(self, messages: list[dict], **kwargs) -> str | dict:
         """Envia a conversa e devolve a resposta.
@@ -301,7 +311,7 @@ class LLMAPI:
             return self.generate(input, **kwargs)
         return self.chat(input, **kwargs)
 
-    def bind_tools(self, tools: list) -> "LLMAPI":
+    def bind_tools(self, tools: list) -> LLMAPI:
         """Devolve uma cópia do modelo com as ferramentas ligadas às chamadas."""
         bound = copy.copy(self)
         bound.tools = [fn.tool_schema for fn in tools]
@@ -332,7 +342,9 @@ class LLMAPI:
             },
         }
         message = self.complete(
-            messages, response_format=response_format, max_tokens=max_tokens or self.max_tokens
+            messages,
+            response_format=response_format,
+            max_tokens=max_tokens or self.max_tokens,
         )
         return schema.model_validate_json(message["content"])
 
@@ -355,10 +367,12 @@ def post(url: str, payload: dict, api_key: str) -> dict:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=600) as response:
             return json.load(response)
     except urllib.error.HTTPError as error:
-        raise RuntimeError(f"{error.code} {error.reason}: {error.read().decode('utf-8')}") from error
+        raise RuntimeError(
+            f"{error.code} {error.reason}: {error.read().decode('utf-8')}"
+        ) from error
 
 
 def to_api_tools(schemas: list[dict]) -> list[dict]:
@@ -406,16 +420,28 @@ def to_api_messages(messages: list[dict]) -> list[dict]:
                 )
             pending.extend(call["id"] for call in calls)
             api_messages.append(
-                {"role": "assistant", "content": message.get("content") or "", "tool_calls": calls}
+                {
+                    "role": "assistant",
+                    "content": message.get("content") or "",
+                    "tool_calls": calls,
+                }
             )
         elif message["role"] == "tool":
             if not pending:
-                raise ValueError("mensagem tool sem chamada correspondente no histórico")
+                raise ValueError(
+                    "mensagem tool sem chamada correspondente no histórico"
+                )
             api_messages.append(
-                {"role": "tool", "tool_call_id": pending.pop(0), "content": message["content"]}
+                {
+                    "role": "tool",
+                    "tool_call_id": pending.pop(0),
+                    "content": message["content"],
+                }
             )
         else:
-            api_messages.append({"role": message["role"], "content": message["content"]})
+            api_messages.append(
+                {"role": message["role"], "content": message["content"]}
+            )
     return api_messages
 
 
@@ -442,6 +468,7 @@ def to_api_schema(schema: type) -> dict:
     declare todos os seus campos como obrigatórios, coisas que o Pydantic não
     escreve sozinho.
     """
+
     def fix(node):
         if isinstance(node, list):
             return [fix(item) for item in node]
@@ -473,7 +500,9 @@ class Embeddings:
         que o preenchimento não entre na conta. Não usamos sentence-transformers
         justamente para que essa etapa fique visível.
         """
-        batch = self.tokenizer(texts, padding=True, truncation=True, return_tensors="pt")
+        batch = self.tokenizer(
+            texts, padding=True, truncation=True, return_tensors="pt"
+        )
         batch = {key: value.to(self.device) for key, value in batch.items()}
         with torch.no_grad():
             output = self.weights(**batch)
