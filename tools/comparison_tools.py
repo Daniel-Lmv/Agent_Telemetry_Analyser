@@ -1,7 +1,8 @@
+import json
+
 import pandas as pd
 
 from agentkit import tool
-from core.preprocessing import Lap
 
 
 def _section_time(
@@ -19,105 +20,95 @@ def _section_time(
     return float(section["time"].iloc[-1] - section["time"].iloc[0])
 
 
-def create_comparison_tools(laps: list[Lap]):
+def create_comparison_tools(laps):
 
     @tool
-    def compare_laps(
-        target_lap: int,
-        reference_lap: int,
-    ) -> str:
+    def compare_laps(target_lap: int, reference_lap: int):
         """
-        Compara duas voltas validas e identifica onde a volta alvo perde ou ganha tempo em relação a volta de referência.
+        Compara duas voltas válidas e identifica onde houve perda ou ganho
+        de tempo. Retorna a diferença total e a diferença por setor.
         """
 
-        target = next(
-            (lap for lap in laps if lap.number == target_lap),
-            None,
-        )
-
-        reference = next(
-            (lap for lap in laps if lap.number == reference_lap),
-            None,
-        )
+        target = next((lap for lap in laps if lap.number == target_lap), None)
+        reference = next((lap for lap in laps if lap.number == reference_lap), None)
 
         if target is None:
-            return f"Volta alvo não encontrada: {target_lap}"
+            return f"Target lap {target_lap} not found."
 
         if reference is None:
-            return f"Volta de referência não encontrada: {reference_lap}"
+            return f"Reference lap {reference_lap} not found."
 
         if target.status.value != "valid":
-            return (
-                f"A volta alvo {target_lap} não é valida. Status: {target.status.value}"
-            )
+            return f"Target lap {target_lap} is not valid."
 
         if reference.status.value != "valid":
-            return f"A volta de referência {reference_lap} não é valida. Status: {reference.status.value}"
+            return f"Reference lap {reference_lap} is not valid."
 
-        target_time = target.duration
-        reference_time = reference.duration
+        total_difference = target.duration - reference.duration
 
-        time_difference = target_time - reference_time
+        track_length = min(target.end_distance, reference.end_distance)
 
-        track_length = min(
-            target.end_distance,
-            reference.end_distance,
-        )
-
-        section_count = 5
-        section_length = track_length / section_count
+        section_length = track_length / 5
 
         sections = []
 
-        for i in range(section_count):
+        for i in range(5):
             start_distance = i * section_length
             end_distance = (i + 1) * section_length
 
-            target_section_time = _section_time(
-                target.data,
-                start_distance,
-                end_distance,
+            target_section = target.data[
+                (target.data["LAP_DISTANCE"] >= start_distance)
+                & (target.data["LAP_DISTANCE"] < end_distance)
+            ]
+
+            reference_section = reference.data[
+                (reference.data["LAP_DISTANCE"] >= start_distance)
+                & (reference.data["LAP_DISTANCE"] < end_distance)
+            ]
+
+            if target_section.empty or reference_section.empty:
+                continue
+
+            target_time = (
+                target_section["time"].iloc[-1] - target_section["time"].iloc[0]
             )
 
-            reference_section_time = _section_time(
-                reference.data,
-                start_distance,
-                end_distance,
+            reference_time = (
+                reference_section["time"].iloc[-1] - reference_section["time"].iloc[0]
             )
 
-            difference = target_section_time - reference_section_time
+            difference = target_time - reference_time
 
             sections.append(
                 {
-                    "number": i + 1,
-                    "start": start_distance,
-                    "end": end_distance,
-                    "target_time": target_section_time,
-                    "reference_time": reference_section_time,
-                    "difference": difference,
+                    "section": i + 1,
+                    "start_distance": round(float(start_distance), 3),
+                    "end_distance": round(float(end_distance), 3),
+                    "target_time": round(float(target_time), 3),
+                    "reference_time": round(float(reference_time), 3),
+                    "difference": round(float(difference), 3),
                 }
             )
 
-        lines = [
-            f"Target lap: {target_lap}",
-            f"Reference lap: {reference_lap}",
-            f"Target time: {target_time:.3f}s",
-            f"Reference time: {reference_time:.3f}s",
-            f"Total time difference: {time_difference:+.3f}s",
-            "",
-            "Time difference by section:",
-        ]
+        if not sections:
+            return "No comparable sections found."
 
-        for section in sections:
-            lines.append(
-                f"Section {section['number']}: "
-                f"{section['start']:.0f}m - "
-                f"{section['end']:.0f}m | "
-                f"target={section['target_time']:.3f}s | "
-                f"reference={section['reference_time']:.3f}s | "
-                f"difference={section['difference']:+.3f}s"
-            )
+        # Maior valor positivo = maior perda de tempo.
+        main_loss = max(sections, key=lambda section: section["difference"])
 
-        return "\n".join(lines)
+        result = {
+            "target_lap": target_lap,
+            "reference_lap": reference_lap,
+            "target_time": round(float(target.duration), 3),
+            "reference_time": round(float(reference.duration), 3),
+            "total_time_difference": round(float(total_difference), 3),
+            "main_loss_section": main_loss["section"],
+            "main_loss": main_loss["difference"],
+            "main_loss_start_distance": main_loss["start_distance"],
+            "main_loss_end_distance": main_loss["end_distance"],
+            "sections": sections,
+        }
+
+        return json.dumps(result, ensure_ascii=False)
 
     return [compare_laps]
