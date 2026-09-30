@@ -6,9 +6,15 @@ O notebook principal está em:
 
 `notebook/Agent_Telemetry_Analyser.ipynb`
 
+Versão do notebook para rodar no Google Colab:
+
+`notebook/Agent_Telemetry_Analyser_Colab.ipynb`
+
 ## Entregável
 
 O entregável da atividade é o notebook. A primeira célula de código do notebook procura os arquivos do projeto no ambiente atual. Caso eles não estejam presentes, ela clona este repositório com `git clone`, instala as dependências Python de `requirements.txt` no ambiente ativo e adiciona a raiz do projeto ao `sys.path`.
+
+Na versão do notebook usando Google Colab, ignore o passo a passo a seguir, basta rodar as células. 
 
 Essa célula não instala Ollama, não baixa modelos do Ollama e não configura GPU. Essas etapas dependem do computador do usuário e devem ser feitas previamente por quem for executar o notebook.
 
