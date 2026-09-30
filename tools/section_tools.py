@@ -1,45 +1,32 @@
-import pandas as pd
-
+from agent.state import AnalysisState
 from agentkit import tool
-from core.preprocessing import Lap
 
 
-def _analyze_signal(
-    data: pd.DataFrame,
-    column: str,
-) -> dict:
-    if column not in data.columns:
-        return {
-            "available": False,
-        }
-
-    values = data[column].dropna()
-
-    if values.empty:
-        return {
-            "available": False,
-        }
-
-    return {
-        "available": True,
-        "mean": float(values.mean()),
-        "minimum": float(values.min()),
-        "maximum": float(values.max()),
-    }
-
-
-def create_section_tools(laps: list[Lap]):
-
+def create_section_tools(
+    laps,
+    state: AnalysisState,
+):
     @tool
     def analyze_section(
         target_lap: int,
         reference_lap: int,
-        start_distance: float,
-        end_distance: float,
-    ) -> str:
+        section: int,
+    ):
         """
-        Analisa um sinal de telemetria dentro de um setor específico, comparando a volta alvo com a volta de referência.
+        Analisa um setor específico comparando duas voltas.
+
+        O setor deve ser informado como um número de 1 a 5.
+        Os limites de distância são calculados automaticamente
+        a partir do comprimento disponível da pista.
+
+        A ferramenta calcula estatísticas de velocidade, freio,
+        acelerador, RPM e direção, além de registrar as evidências
+        encontradas no estado compartilhado da análise.
         """
+
+        # ---------------------------------------------------------
+        # Validação das voltas
+        # ---------------------------------------------------------
 
         target = next(
             (lap for lap in laps if lap.number == target_lap),
@@ -52,30 +39,111 @@ def create_section_tools(laps: list[Lap]):
         )
 
         if target is None:
-            return f"Volta alvo não encontrada: {target_lap}"
+            return f"Target lap {target_lap} not found."
 
         if reference is None:
-            return f"Volta de referência não encontrada: {reference_lap}"
+            return f"Reference lap {reference_lap} not found."
 
-        if start_distance >= end_distance:
-            return "O início da seção deve ser menor que o final da seção"
+        if target.status.value != "valid":
+            return (
+                f"Target lap {target_lap} is not valid. Status: {target.status.value}"
+            )
 
-        def select_section(lap: Lap) -> pd.DataFrame:
-            return lap.data[
-                (lap.data["LAP_DISTANCE"] >= start_distance)
-                & (lap.data["LAP_DISTANCE"] < end_distance)
-            ]
+        if reference.status.value != "valid":
+            return (
+                f"Reference lap {reference_lap} is not valid. "
+                f"Status: {reference.status.value}"
+            )
 
-        target_data = select_section(target)
-        reference_data = select_section(reference)
+        # ---------------------------------------------------------
+        # Registra as voltas no estado
+        # ---------------------------------------------------------
 
-        if target_data.empty:
-            return f"Não existem dados da volta {target_lap} nessa seção"
+        state.set_laps(
+            target_lap=target_lap,
+            reference_lap=reference_lap,
+        )
 
-        if reference_data.empty:
-            return f"Não existem dados da volta {reference_lap} nessa seção"
+        # ---------------------------------------------------------
+        # Validação do setor
+        # ---------------------------------------------------------
 
-        signals = [
+        if section < 1 or section > 5:
+            return "Section must be between 1 and 5."
+
+        # ---------------------------------------------------------
+        # Comprimento da pista
+        # ---------------------------------------------------------
+
+        track_length = min(
+            target.end_distance,
+            reference.end_distance,
+        )
+
+        if track_length <= 0:
+            return "Unable to determine a valid track length."
+
+        section_length = track_length / 5
+
+        start_distance = (section - 1) * section_length
+
+        end_distance = section * section_length
+
+        # ---------------------------------------------------------
+        # Seleção dos dados do setor
+        # ---------------------------------------------------------
+
+        target_section = target.data[
+            (target.data["LAP_DISTANCE"] >= start_distance)
+            & (target.data["LAP_DISTANCE"] < end_distance)
+        ]
+
+        reference_section = reference.data[
+            (reference.data["LAP_DISTANCE"] >= start_distance)
+            & (reference.data["LAP_DISTANCE"] < end_distance)
+        ]
+
+        if target_section.empty:
+            return (
+                f"No telemetry data found for target lap "
+                f"{target_lap} in section {section}."
+            )
+
+        if reference_section.empty:
+            return (
+                f"No telemetry data found for reference lap "
+                f"{reference_lap} in section {section}."
+            )
+
+        # ---------------------------------------------------------
+        # Estatísticas
+        # ---------------------------------------------------------
+
+        def statistics(
+            data,
+            column: str,
+        ) -> dict:
+
+            values = data[column].dropna()
+
+            if values.empty:
+                return {
+                    "mean": None,
+                    "min": None,
+                    "max": None,
+                }
+
+            return {
+                "mean": float(values.mean()),
+                "min": float(values.min()),
+                "max": float(values.max()),
+            }
+
+        # ---------------------------------------------------------
+        # Métricas utilizadas na análise
+        # ---------------------------------------------------------
+
+        metrics = [
             "SPEED",
             "BRAKE",
             "THROTTLE",
@@ -83,58 +151,100 @@ def create_section_tools(laps: list[Lap]):
             "STEERING",
         ]
 
-        lines = [
-            f"Section: {start_distance:.1f}m - {end_distance:.1f}m",
+        # ---------------------------------------------------------
+        # Resultado
+        # ---------------------------------------------------------
+
+        result = [
+            f"Section: {section}",
+            (f"Distance: {start_distance:.3f}m - {end_distance:.3f}m"),
             f"Target lap: {target_lap}",
-            f"Rerefence lap: {reference_lap}",
+            f"Reference lap: {reference_lap}",
             "",
         ]
 
-        for signal in signals:
-            target_stats = _analyze_signal(
-                target_data,
-                signal,
-            )
+        # ---------------------------------------------------------
+        # Análise das métricas
+        # ---------------------------------------------------------
 
-            reference_stats = _analyze_signal(
-                reference_data,
-                signal,
-            )
-
-            if not target_stats["available"]:
+        for metric in metrics:
+            if metric not in target_section.columns:
                 continue
 
-            if not reference_stats["available"]:
+            if metric not in reference_section.columns:
+                continue
+
+            target_stats = statistics(
+                target_section,
+                metric,
+            )
+
+            reference_stats = statistics(
+                reference_section,
+                metric,
+            )
+
+            if target_stats["mean"] is None:
+                continue
+
+            if reference_stats["mean"] is None:
                 continue
 
             mean_difference = target_stats["mean"] - reference_stats["mean"]
 
-            min_difference = target_stats["minimum"] - reference_stats["minimum"]
+            min_difference = target_stats["min"] - reference_stats["min"]
 
-            max_difference = target_stats["maximum"] - reference_stats["maximum"]
+            max_difference = target_stats["max"] - reference_stats["max"]
 
-            lines.append(f"{signal}")
+            result.append(f"{metric}:")
 
-            lines.append(
-                f" target mean={target_stats['mean']:.3f}"
-                f", reference mean={reference_stats['mean']:.3f}"
-                f", difference={mean_difference:+.3f}"
+            result.append(f"  Target mean: {target_stats['mean']:.3f}")
+
+            result.append(f"  Reference mean: {reference_stats['mean']:.3f}")
+
+            result.append(f"  Mean difference: {mean_difference:+.3f}")
+
+            result.append(f"  Target min: {target_stats['min']:.3f}")
+
+            result.append(f"  Reference min: {reference_stats['min']:.3f}")
+
+            result.append(f"  Min difference: {min_difference:+.3f}")
+
+            result.append(f"  Target max: {target_stats['max']:.3f}")
+
+            result.append(f"  Reference max: {reference_stats['max']:.3f}")
+
+            result.append(f"  Max difference: {max_difference:+.3f}")
+
+            result.append("")
+
+            # -----------------------------------------------------
+            # Registra evidência no estado
+            # -----------------------------------------------------
+
+            interpretation = f"{metric} mean difference: {mean_difference:+.3f}"
+
+            state.add_evidence(
+                metric=metric,
+                target_value=target_stats["mean"],
+                reference_value=reference_stats["mean"],
+                difference=mean_difference,
+                interpretation=interpretation,
+                section=section,
             )
 
-            lines.append(
-                f" target min={target_stats['minimum']:.3f}"
-                f", reference min={reference_stats['minimum']:.3f}"
-                f", difference={min_difference:+.3f}"
-            )
+        # ---------------------------------------------------------
+        # Registra setor analisado
+        # ---------------------------------------------------------
 
-            lines.append(
-                f" target max={target_stats['maximum']:.3f}"
-                f", reference max={reference_stats['maximum']:.3f}"
-                f", difference={max_difference:+.3f}"
-            )
+        state.add_section(section)
 
-            lines.append("")
+        state.add_observation(
+            f"Section {section} analyzed between "
+            f"distance {start_distance:.3f}m and "
+            f"{end_distance:.3f}m."
+        )
 
-        return "\n".join(lines)
+        return "\n".join(result)
 
     return [analyze_section]

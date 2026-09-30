@@ -16,8 +16,28 @@ import urllib.error
 import urllib.request
 
 import numpy as np
-import torch
-from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer
+
+
+def _import_torch():
+    try:
+        import torch
+    except ImportError as exc:
+        raise ImportError(
+            "Instale torch para usar LLM local ou embeddings. "
+            "Para Ollama/API, a classe LLMAPI não precisa de torch."
+        ) from exc
+    return torch
+
+
+def _import_transformers():
+    try:
+        from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer
+    except ImportError as exc:
+        raise ImportError(
+            "Instale transformers para usar LLM local ou embeddings. "
+            "Para Ollama/API, a classe LLMAPI não precisa de transformers."
+        ) from exc
+    return AutoModel, AutoModelForCausalLM, AutoTokenizer
 
 
 class LLM:
@@ -31,6 +51,9 @@ class LLM:
         top_p: float = 0.9,
         max_tokens: int = 512,
     ) -> None:
+        torch = _import_torch()
+        _, AutoModelForCausalLM, AutoTokenizer = _import_transformers()
+
         self.model = model
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.temperature = temperature
@@ -487,6 +510,9 @@ class Embeddings:
     """Codificador de textos em vetores, com pooling médio pela máscara de atenção."""
 
     def __init__(self, model: str, device: str | None = None) -> None:
+        torch = _import_torch()
+        AutoModel, _, AutoTokenizer = _import_transformers()
+
         self.model = model
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer = AutoTokenizer.from_pretrained(model)
@@ -500,6 +526,8 @@ class Embeddings:
         que o preenchimento não entre na conta. Não usamos sentence-transformers
         justamente para que essa etapa fique visível.
         """
+        torch = _import_torch()
+
         batch = self.tokenizer(
             texts, padding=True, truncation=True, return_tensors="pt"
         )
