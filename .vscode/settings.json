@@ -1,10 +1,1 @@
-{
-  "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
-  "python.terminal.activateEnvironment": true,
-  "jupyter.notebookFileRoot": "${workspaceFolder}",
-  "terminal.integrated.env.windows": {
-    "OLLAMA_VULKAN": "1",
-    "TELEMETRY_AGENT_BASE_URL": "http://localhost:11434/v1",
-    "TELEMETRY_AGENT_MODEL": "qwen3.5:4b"
-  }
-}
+{ "python.defaultInterpreterPath": "/home/daniel-lmv/Github/Agent_Telemetry_Analyser/.venv/bin/python" }
